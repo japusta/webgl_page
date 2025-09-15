@@ -2,6 +2,8 @@ import { WebGPURenderer } from "./render/WebGPURenderer.js";
 import { ClothSimulator } from "./sim/ClothSimulator.js";
 import { UiController } from "./ui/UiController.js";
 import { Time } from "./utils/Time.js";
+import { OrbitControls } from "./controls/OrbitControls.js";
+
 /*
  * Главный модуль приложения. Здесь связывается пользовательский интерфейс,
  * симулятор ткани и WebGPU‑рендерер. Принцип единственной ответственности (SOLID)
@@ -16,6 +18,13 @@ async function main() {
     let sim = new ClothSimulator(gridSize, gridSize, 1.0, renderer.device);
     sim.gravityEnabled = ui.gravity;
     sim.solverIterations = ui.iterations;
+        // орбит‑контролы: вращение/зум вокруг центра ткани
+    const controls = new OrbitControls(canvas, {
+        distance: 2.0,
+        theta: 0.7,
+        phi: 1.0,
+        target: [0, 0, 0],
+    });
     // реакция на изменения UI
     ui.onChange(({ gravity, iterations, gridChanged, gridSize: g }) => {
         sim.gravityEnabled = gravity;
@@ -25,6 +34,8 @@ async function main() {
             gridSize = g;
             sim.dispose();
             sim = new ClothSimulator(gridSize, gridSize, 1.0, renderer.device);
+            controls.setTarget(0, 0, 0);
+
         }
     });
     ui.onReset(() => {
@@ -34,8 +45,10 @@ async function main() {
     function frame() {
         const dt = time.tick();
         sim.update(dt);
-        renderer.draw(sim.positions, sim.indices, sim.cornerIndices, sim.oscillatingIndex);
-        requestAnimationFrame(frame);
+        const eye = controls.getEye();
+        const camera = { eye, target: controls.target };
+        renderer.draw(sim.positions, sim.indices, sim.cornerIndices, sim.oscillatingIndex, camera);
+                requestAnimationFrame(frame);
     }
     frame();
 }

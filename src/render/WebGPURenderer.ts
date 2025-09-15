@@ -1,8 +1,4 @@
-/**
- * WebGPURenderer инкапсулирует настройку canvas, загрузку шейдера и
- * отрисовку. Разделение рендера и симуляции позволяет легко заменить
- * визуализацию или подключить другой бэкэнд.
- */
+
 export class WebGPURenderer {
   private context: GPUCanvasContext;
   readonly device: GPUDevice;
@@ -27,14 +23,9 @@ export class WebGPURenderer {
     this.context.configure({ device, format: this.format, alphaMode: "opaque" });
   }
 
-  /**
-   * Ленивая инициализация шейдера и пайплайна. Шейдер читается из файла
-   * ../shaders/mesh.wgsl относительно текущего модуля. JS bundler (если
-   * используется) обработает импорт; в статическом виде используем fetch.
-   */
+
   private async ensurePipeline() {
     if (this.pipeline) return;
-    // загружаем код WGSL из файла
     const code = await fetch(new URL("../shaders/mesh.wgsl", import.meta.url)).then((r) => r.text());
     const module = this.device.createShaderModule({ code });
     this.pipeline = this.device.createRenderPipeline({
@@ -67,7 +58,6 @@ export class WebGPURenderer {
         depthCompare: "less",
       },
     });
-    // создаём буфер под максимальное число вершин (128*128*3*4 байта)
     const maxVerts = 128 * 128;
     this.posBuffer = this.device.createBuffer({
       size: maxVerts * 3 * 4,
@@ -85,10 +75,6 @@ export class WebGPURenderer {
     }
   }
 
-  /**
-   * Основной метод для отрисовки. Получает массив вершин, индексы и выводит
-   * изображение на canvas. Буферы перезаписываются каждый кадр.
-   */
   async draw(
     positions: Float32Array,
     indices: Uint32Array,

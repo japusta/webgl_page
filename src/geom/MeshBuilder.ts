@@ -7,10 +7,6 @@ export type GridMesh = {
   centerIndex: number;
 };
 
-/**
- * Генератор регулярной квадратной сетки на плоскости XZ (Y=0).
- * Возвращает массив позиций вершин, индексы треугольников, уголки и центральную точку.
- */
 export class MeshBuilder {
   static buildGrid(nx: number, ny: number, side = 1.0): GridMesh {
     const positions: Vec3[] = [];

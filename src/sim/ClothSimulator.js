@@ -20,7 +20,7 @@ export class ClothSimulator {
     this.solver = new PBDSolver();
 
     // --- НАСТРОЙКА ВЫСОТЫ ТКАНИ ---
-    this.yOffset = 0.35; // ↑ поднимите/опустите ткань здесь (метры)
+    this.yOffset = 0.35; //  поднять/опустить ткань здесь (метры)
 
     const mesh = MeshBuilder.buildGrid(nx, ny, side);
     this.indices = mesh.indices;
@@ -74,7 +74,7 @@ export class ClothSimulator {
   }
 
   update(dt) {
-    // центральная «синусная» вершина: именно перемещаем (а не сила)
+    // центральная синусная вершина: именно перемещаем (а не сила)
     const amp = 0.15, freq = 1.2; // метры, Гц
     const ySin = Math.sin(performance.now() * 0.001 * 2 * Math.PI * freq) * amp;
     const center = this.particles[this.oscillatingIndex];

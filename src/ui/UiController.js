@@ -1,8 +1,4 @@
-/*
- * Контроллер UI управляет пользовательским вводом: переключателем гравитации,
- * числом итераций и размером сетки. В рамках SOLID он отделён от логики
- * симуляции и рендера. Позволяет подписаться на изменения через callbacks.
- */
+
 
 export class UiController {
   constructor() {
@@ -24,10 +20,6 @@ export class UiController {
     return Math.max(6, Math.min(128, val));
   }
 
-  /**
-   * Подписаться на изменения UI. Callback вызывается при изменении любого
-   * параметра. Если изменён размер сетки, флаг gridChanged=true.
-   */
   onChange(cb) {
     const fire = (gridChanged = false) =>
       cb({
@@ -41,9 +33,7 @@ export class UiController {
     this.gridEl.addEventListener("change", () => fire(true));
   }
 
-  /**
-   * Подписаться на нажатие кнопки «Сброс».
-   */
+ 
   onReset(cb) {
     this.resetBtn.addEventListener("click", cb);
   }

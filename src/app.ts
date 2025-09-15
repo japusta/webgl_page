@@ -2,12 +2,7 @@ import { WebGPURenderer } from "./render/WebGPURenderer.js";
 import { ClothSimulator } from "./sim/ClothSimulator.js";
 import { UiController } from "./ui/UiController.js";
 import { Time } from "./utils/Time.js";
-
-/*
- * Главный модуль приложения. Здесь связывается пользовательский интерфейс,
- * симулятор ткани и WebGPU‑рендерер. Принцип единственной ответственности (SOLID)
- * соблюдён: каждый класс отвечает за свою область.
- */
+import { OrbitControls } from "./controls/OrbitControls.js";
 
 const canvas = document.getElementById("gpu-canvas") as HTMLCanvasElement;
 
@@ -21,7 +16,13 @@ async function main() {
   sim.gravityEnabled = ui.gravity;
   sim.solverIterations = ui.iterations;
 
-  // реакция на изменения UI
+  const controls = new OrbitControls(canvas, {
+    distance: 2.0,
+    theta: 0.7,
+    phi: 1.0,
+    target: [0, 0, 0],
+  });
+
   ui.onChange(({ gravity, iterations, gridChanged, gridSize: g }) => {
     sim.gravityEnabled = gravity;
     sim.solverIterations = iterations;
@@ -30,6 +31,8 @@ async function main() {
       gridSize = g;
       sim.dispose();
       sim = new ClothSimulator(gridSize, gridSize, 1.0, renderer.device);
+      controls.setTarget(0, 0, 0);
+
     }
   });
 
@@ -41,11 +44,14 @@ async function main() {
   function frame() {
     const dt = time.tick();
     sim.update(dt);
+    const eye = controls.getEye();
+    const camera = { eye, target: controls.target };
     renderer.draw(
       sim.positions,
       sim.indices,
       sim.cornerIndices,
-      sim.oscillatingIndex
+      sim.oscillatingIndex,
+      camera
     );
     requestAnimationFrame(frame);
   }

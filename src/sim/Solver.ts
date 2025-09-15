@@ -2,10 +2,6 @@ import { Particle } from "./structures/Particle.js";
 import { IConstraint } from "./structures/Constraint.js";
 import { Vec3 } from "../utils/Vec3.js";
 
-/**
- * Интерфейс солвера для симуляций. Реализация (PBDSolver) может быть
- * заменена на XPBD или GPU‑вариант без изменения кода симуляции.
- */
 export interface ISolver {
   step(particles: Particle[], constraints: IConstraint[], dt: number, gravityOn: boolean): void;
 }
