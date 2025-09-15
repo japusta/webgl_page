@@ -15,7 +15,7 @@ async function main() {
   sim.gravityEnabled = ui.gravity;
   sim.solverIterations = ui.iterations;
 
-  // орбит-контролы: целимся в центр ткани (по yOffset)
+  // орбит-контролы: целимся в центр ткани по её базовой высоте
   const controls = new OrbitControls(canvas, {
     distance: 2.0, theta: 0.7, phi: 1.0, target: [0, sim.yOffset, 0]
   });
@@ -27,7 +27,7 @@ async function main() {
       sim.dispose();
       gridSize = g;
       sim = new ClothSimulator(gridSize, gridSize, 2.0, renderer.device);
-      controls.setTarget(0, sim.yOffset, 0); // центр ткани мог сместиться
+      controls.setTarget(0, sim.yOffset, 0);
     }
   });
 
