@@ -1,0 +1,13 @@
+{
+  "name": "pbd-cloth-webgpu",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "http-server -p 5173 ."
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.64",
+    "http-server": "^14.1.1",
+    "typescript": "^5.9.2"
+  }
+}
