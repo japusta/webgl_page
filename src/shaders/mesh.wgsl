@@ -8,12 +8,10 @@ fn normalize_safe(v: vec3<f32>) -> vec3<f32> {
   return v / l;
 }
 
-/* Globals: aspect + eye + target  (64 байт с паддингом) */
+/* uniform с аспектом канваса */
 struct Globals {
   aspect : f32,
-  _pad0  : vec3<f32>,
-  eye    : vec3<f32>, _pad1 : f32,
-  target : vec3<f32>, _pad2 : f32,
+  _pad0  : vec3<f32>,  // выравнивание
 }
 @group(0) @binding(0) var<uniform> globals : Globals;
 
@@ -28,8 +26,9 @@ fn ortho(l: f32, r: f32, b: f32, t: f32, n: f32, f: f32) -> mat4x4<f32> {
 
 @vertex
 fn vs_main(@location(0) position: vec3<f32>) -> VSOut {
-  let eye     = globals.eye;
-  let look_at = globals.target;
+  // лёгкий наклон сверху, как в макете
+  let eye     = vec3<f32>(0.0, 1.2, 1.2);
+  let look_at = vec3<f32>(0.0, 0.0, 0.0);
   let up      = vec3<f32>(0.0, 1.0, 0.0);
 
   let z = normalize_safe(eye - look_at);
@@ -43,9 +42,16 @@ fn vs_main(@location(0) position: vec3<f32>) -> VSOut {
     vec4<f32>(-dot(x, eye), -dot(y, eye), -dot(z, eye), 1.0)
   );
 
+  // орто-проекция, чтобы весь квадрат влезал
   let a = max(globals.aspect, 1e-6);
   let half = 1.2;
-  let proj = ortho(-half*a, half*a, -half, half, 0.01, 10.0);
+  let l = -half * a;
+  let r =  half * a;
+  let b = -half;
+  let t =  half;
+  let n = 0.01;
+  let f = 10.0;
+  let proj = ortho(l, r, b, t, n, f);
 
   var out: VSOut;
   out.worldPos = position;
@@ -53,6 +59,7 @@ fn vs_main(@location(0) position: vec3<f32>) -> VSOut {
   return out;
 }
 
+/* заливка ткани (серо-синяя, слегка по высоте) */
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let n = vec3<f32>(0.0, 1.0, 0.0);
@@ -63,6 +70,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   return vec4<f32>(base * ndotl, 1.0);
 }
 
+/* отдельный фрагмент для проволоки (почти чёрный) */
 @fragment
 fn fs_line(_in: VSOut) -> @location(0) vec4<f32> {
   return vec4<f32>(0.06, 0.08, 0.10, 1.0);
