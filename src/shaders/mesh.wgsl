@@ -8,7 +8,6 @@ fn normalize_safe(v: vec3<f32>) -> vec3<f32> {
   return v / l;
 }
 
-/* UBO (64 байта): aspect + eye + look_at */
 struct Globals {
   aspect : f32,
   _pad0  : vec3<f32>,
@@ -17,7 +16,6 @@ struct Globals {
 }
 @group(0) @binding(0) var<uniform> globals : Globals;
 
-/* Орто-проекция в стиле предыдущей версии */
 fn ortho(l: f32, r: f32, b: f32, t: f32, n: f32, f: f32) -> mat4x4<f32> {
   return mat4x4<f32>(
     vec4<f32>(2.0/(r-l), 0.0,         0.0,       0.0),
@@ -56,7 +54,6 @@ fn vs_main(@location(0) position4: vec4<f32>) -> VSOut {
   return out;
 }
 
-/* заливка */
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let n = vec3<f32>(0.0, 1.0, 0.0);
@@ -67,7 +64,6 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   return vec4<f32>(base * ndotl, 1.0);
 }
 
-/* проволока */
 @fragment
 fn fs_line(_in: VSOut) -> @location(0) vec4<f32> {
   return vec4<f32>(0.06, 0.08, 0.10, 1.0);

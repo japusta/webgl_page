@@ -1,5 +1,3 @@
-// Классический PBD для рёбер (без XPBD-лямбд).
-// Безопасность обеспечивает раскраска групп на CPU (никаких гонок).
 
 struct Params {
   dt         : f32, gravityY: f32, _unused0: f32, iterations: f32,
@@ -23,7 +21,7 @@ struct Edge {
 fn cs_constraints(@builtin(global_invocation_id) gid: vec3<u32>) {
   let cid = gid.x;
 
-  let e = edges[cid];        // количество диспатчат хост-код задаёт по g.count
+  let e = edges[cid];        
   let i = e.i;
   let j = e.j;
 
@@ -43,9 +41,8 @@ fn cs_constraints(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let wsum = wi + wj;
   if (wsum > 0.0) {
-    // Ограничим шаг (shock-limiter), чтобы не выстреливало
     var corr = (C / wsum) * n;
-    let maxStep = 0.2 * e.rest;                 // не больше 20% длины ребра
+    let maxStep = 0.2 * e.rest;                
     let clen = length(corr);
     if (clen > maxStep) { corr = corr * (maxStep / clen); }
 
