@@ -1,3 +1,5 @@
+// Рендерер WebGPU: принимает позиции как vec4 (stride 16),
+// копирует их с GPU-симулятора в VBO и обновляет маркеры чисто на GPU.
 export class WebGPURenderer {
   static async create(canvas) {
     if (!("gpu" in navigator)) throw new Error("WebGPU not supported");
@@ -14,28 +16,43 @@ export class WebGPURenderer {
     this.format = navigator.gpu.getPreferredCanvasFormat();
     this.context.configure({ device, format: this.format, alphaMode: "opaque" });
 
-    this.posBuffer = null;
+    // mesh buffers
+    this.posBuffer = null;     // VBO для позиций (vec4)
     this.indexBuffer = null;
     this.indexCount = 0;
 
+    // wireframe
     this.lineIndexBuffer = null;
-    this.lineIndexCount = 0;
+    this.lineIndexCount  = 0;
 
-    this.markerShapeBuffer = null;
-    this.markerInstanceBuffer = null;
-    this.markerInstanceCount = 0;
+    // markers
+    this.markerShapeBuffer    = null; // slot 0 (локальная форма ромба)
+    this.markerInstanceBuffer = null; // slot 1 (posSize + color)
+    this.markerInstanceCount  = 0;
 
-    this.globalUBO = null;
+    // UBO + layouts/pipelines
+    this.globalUBO = null;     // 64 байта: aspect + eye + look_at
     this.globalsBGL = null;
     this.pipelineLayout = null;
     this.globalBindGroup = null;
 
-    this.fillPipeline = null;
-    this.linePipeline = null;
+    this.fillPipeline   = null;
+    this.linePipeline   = null;
     this.markerPipeline = null;
 
     this._ready = false;
     this._ensurePromise = null;
+
+    // создать форму маркера сразу (чтобы не было гонок)
+    const local = new Float32Array([
+      -1, 0,   0, 1,   1, 0,
+      -1, 0,   0,-1,   1, 0
+    ]);
+    this.markerShapeBuffer = this.device.createBuffer({
+      size: local.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+    this.device.queue.writeBuffer(this.markerShapeBuffer, 0, local);
   }
 
   async ensurePipelines() {
@@ -47,6 +64,7 @@ export class WebGPURenderer {
         const meshModule = this.device.createShaderModule({ code: meshCode });
         const markModule = this.device.createShaderModule({ code: markCode });
 
+        // общий BGL/PL для UBO
         this.globalsBGL = this.device.createBindGroupLayout({
           entries: [{
             binding: 0,
@@ -56,6 +74,7 @@ export class WebGPURenderer {
         });
         this.pipelineLayout = this.device.createPipelineLayout({ bindGroupLayouts: [this.globalsBGL] });
 
+        // UBO 64 байта
         this.globalUBO = this.device.createBuffer({
           size: 64,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -65,12 +84,13 @@ export class WebGPURenderer {
           entries: [{ binding: 0, resource: { buffer: this.globalUBO, offset: 0, size: 64 } }]
         });
 
+        // pipelines (заметим: формат вершины теперь float32x4, stride 16)
         this.fillPipeline = this.device.createRenderPipeline({
           layout: this.pipelineLayout,
           vertex: {
             module: meshModule,
             entryPoint: "vs_main",
-            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }]
+            buffers: [{ arrayStride: 16, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }] }]
           },
           fragment: { module: meshModule, entryPoint: "fs_main", targets: [{ format: this.format }] },
           primitive: { topology: "triangle-list", cullMode: "none" },
@@ -82,7 +102,7 @@ export class WebGPURenderer {
           vertex: {
             module: meshModule,
             entryPoint: "vs_main",
-            buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }]
+            buffers: [{ arrayStride: 16, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x4" }] }]
           },
           fragment: { module: meshModule, entryPoint: "fs_line", targets: [{ format: this.format }] },
           primitive: { topology: "line-list", cullMode: "none" },
@@ -95,11 +115,10 @@ export class WebGPURenderer {
             module: markModule,
             entryPoint: "vs_mark",
             buffers: [
-              { arrayStride: 8, stepMode: "vertex",
-                attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] },
+              { arrayStride: 8,  stepMode: "vertex",   attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] },
               { arrayStride: 32, stepMode: "instance", attributes: [
-                { shaderLocation: 1, offset: 0,  format: "float32x4" },
-                { shaderLocation: 2, offset: 16, format: "float32x4" },
+                { shaderLocation: 1, offset: 0,  format: "float32x4" }, // posSize
+                { shaderLocation: 2, offset: 16, format: "float32x4" }  // color
               ] }
             ]
           },
@@ -108,28 +127,16 @@ export class WebGPURenderer {
           depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" }
         });
 
+        // основной VBO (vec4) с запасом
         const maxVerts = 128 * 128;
         this.posBuffer = this.device.createBuffer({
-          size: maxVerts * 3 * 4,
-          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+          size: maxVerts * 16, // vec4 = 16 байт
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
         });
-
-        if (!this.markerShapeBuffer) {
-          const local = new Float32Array([
-            -1, 0,  0, 1,  1, 0,
-            -1, 0,  0,-1, 1, 0
-          ]);
-          this.markerShapeBuffer = this.device.createBuffer({
-            size: local.byteLength,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-          });
-          this.device.queue.writeBuffer(this.markerShapeBuffer, 0, local);
-        }
 
         this._ready = true;
       })();
     }
-
     await this._ensurePromise;
   }
 
@@ -142,93 +149,117 @@ export class WebGPURenderer {
     }
   }
 
-  async draw(positions, indices, corners, centerIdx, camera) {
+  async draw(positionsOrGPU, indices, corners, centerIdx, camera, gpuInfo) {
     await this.ensurePipelines();
     if (!this._ready) return;
-    this._draw(positions, indices, corners, centerIdx, camera);
+    this._draw(positionsOrGPU, indices, corners, centerIdx, camera, gpuInfo);
   }
 
-_updateGlobalsUBO(camera) {
-  const aspect = this.canvas.width / this.canvas.height;
-  const eye  = camera?.eye    ?? [0, 1.2, 1.2];
-  const look = camera?.target ?? [0, 0, 0];
+  _updateGlobalsUBO(camera) {
+    const aspect = this.canvas.width / this.canvas.height;
+    const eye  = camera?.eye    ?? [0, 1.2, 1.2];
+    const look = camera?.target ?? [0, 0, 0];
 
-  const u = new Float32Array(16); 
-  u[0]  = aspect;
+    const u = new Float32Array(16); // 64 bytes
+    u[0]  = aspect;
+    // из-за выравнивания (vec3 как 16 байт): eye идёт с 8-го float, look_at с 12-го
+    u[8]  = eye[0];  u[9]  = eye[1];  u[10] = eye[2];
+    u[12] = look[0]; u[13] = look[1]; u[14] = look[2];
 
-  u[8]  = eye[0];  u[9]  = eye[1];  u[10] = eye[2];
-  u[12] = look[0]; u[13] = look[1]; u[14] = look[2];
-
-  this.device.queue.writeBuffer(this.globalUBO, 0, u);
-}
+    this.device.queue.writeBuffer(this.globalUBO, 0, u);
+  }
 
   _ensureLineIndexBuffer(indices) {
     if (this.lineIndexBuffer && this._cachedIndexLen === indices.length) return;
     const set = new Set();
-    const push = (a,b)=>{ set.add(a<b ? (a<<16)|b : (b<<16)|a); };
-    for (let i=0;i<indices.length;i+=3){ const a=indices[i],b=indices[i+1],c=indices[i+2]; push(a,b); push(b,c); push(c,a); }
+    const push = (a,b)=> set.add(a<b ? (a<<16)|b : (b<<16)|a);
+    for (let i=0;i<indices.length;i+=3){
+      const a=indices[i], b=indices[i+1], c=indices[i+2];
+      push(a,b); push(b,c); push(c,a);
+    }
     const lines = new Uint32Array(set.size*2);
     let k=0; for (const key of set){ lines[k++]=key>>16; lines[k++]=key&0xffff; }
     this.lineIndexBuffer?.destroy();
-    this.lineIndexBuffer = this.device.createBuffer({ size: lines.byteLength, usage: GPUBufferUsage.INDEX|GPUBufferUsage.COPY_DST });
+    this.lineIndexBuffer = this.device.createBuffer({
+      size: lines.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+    });
     this.device.queue.writeBuffer(this.lineIndexBuffer, 0, lines);
     this.lineIndexCount = lines.length;
     this._cachedIndexLen = indices.length;
   }
 
-  _updateMarkerInstances(positions, corners, centerIdx) {
-    const ids = [...corners, centerIdx];              
-    const data = new Float32Array(ids.length * 8);    
-    const size = 0.035;
-    for (let i=0;i<ids.length;i++){
-      const idx = ids[i], base = i*8;
-      data[base+0]=positions[idx*3+0];
-      data[base+1]=positions[idx*3+1];
-      data[base+2]=positions[idx*3+2];
-      data[base+3]=size;
-      if (i<4){ data[base+4]=1.0; data[base+5]=0.2;  data[base+6]=0.2;  data[base+7]=1.0; } 
-      else    { data[base+4]=0.2; data[base+5]=0.55; data[base+6]=1.0; data[base+7]=1.0; } 
-    }
-    if (!this.markerInstanceBuffer) {
+  // Подготовка/обновление инстанс-буфера маркеров без CPU-чтения:
+  // копируем XYZ из GPU-позиций в posSize каждого инстанса (12 байт),
+  // размер (W) и цвет задаются один раз.
+  _syncMarkerInstancesFromGPU(enc, positionsGPU, corners, centerIdx) {
+    const ids = [...corners, centerIdx];
+    const stride = 32; // vec4 posSize + vec4 color
+    const count  = ids.length;
+
+    if (!this.markerInstanceBuffer || this.markerInstanceCount !== count) {
+      this.markerInstanceBuffer?.destroy();
       this.markerInstanceBuffer = this.device.createBuffer({
-        size: data.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+        size: count * stride,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
       });
+      // Инициализация: заполняем size и color (позиции зальём копированием)
+      const init = new Float32Array(count * 8); // 2 * vec4
+      const size = 0.035;
+      for (let i=0;i<count;i++){
+        const base = i*8;
+        // posSize: xyz (пока нули), w = size
+        init[base+3] = size;
+        // color
+        if (i < 4) { // углы — красные
+          init[base+4]=1.0; init[base+5]=0.2; init[base+6]=0.2; init[base+7]=1.0;
+        } else {    // центр — синий
+          init[base+4]=0.2; init[base+5]=0.55; init[base+6]=1.0; init[base+7]=1.0;
+        }
+      }
+      this.device.queue.writeBuffer(this.markerInstanceBuffer, 0, init);
+      this.markerInstanceCount = count;
     }
-    this.device.queue.writeBuffer(this.markerInstanceBuffer, 0, data);
-    this.markerInstanceCount = ids.length;
+
+    // Обновляем xyz из positionsGPU → posSize (первые 12 байт vec4)
+    for (let i=0;i<count;i++){
+      const vidx = ids[i];
+      const srcOffset = vidx * 16;       // vec4 в симуляторе
+      const dstOffset = i * stride + 0;  // начало posSize
+      enc.copyBufferToBuffer(positionsGPU, srcOffset, this.markerInstanceBuffer, dstOffset, 12);
+    }
   }
 
-  _draw(positions, indices, corners, centerIdx, camera) {
+  _draw(positionsOrGPU, indices, corners, centerIdx, camera, gpuInfo) {
     this.resize();
     this._updateGlobalsUBO(camera);
 
-    this.device.queue.writeBuffer(this.posBuffer, 0, positions);
+    const enc = this.device.createCommandEncoder();
 
+    // Позиции: GPU-путь (копирование) или CPU-путь (writeBuffer)
+    if (gpuInfo?.gpu === true) {
+      enc.copyBufferToBuffer(
+        positionsOrGPU, 0,
+        this.posBuffer, 0,
+        gpuInfo.bytes // numVerts * 16
+      );
+      // маркеры обновим тоже на GPU
+      this._syncMarkerInstancesFromGPU(enc, positionsOrGPU, corners, centerIdx);
+    } else {
+      // CPU fallback (positionsOrGPU — Float32Array vec4-позиций)
+      this.device.queue.writeBuffer(this.posBuffer, 0, positionsOrGPU);
+      // markers: можно собрать из CPU-массива (не рассматриваем здесь)
+    }
+
+    // индексы и wireframe
     if (!this.indexBuffer || this.indexCount !== indices.length) {
       this.indexBuffer?.destroy();
       this.indexBuffer = this.device.createBuffer({
-        size: indices.byteLength,
-        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
+        size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
       });
       this.indexCount = indices.length;
     }
     this.device.queue.writeBuffer(this.indexBuffer, 0, indices);
-
     this._ensureLineIndexBuffer(indices);
-    this._updateMarkerInstances(positions, corners, centerIdx);
-
-    if (!this.markerShapeBuffer) {
-      const local = new Float32Array([
-        -1, 0,  0, 1,  1, 0,
-        -1, 0,  0,-1, 1, 0
-      ]);
-      this.markerShapeBuffer = this.device.createBuffer({
-        size: local.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-      });
-      this.device.queue.writeBuffer(this.markerShapeBuffer, 0, local);
-    }
 
     const colorView = this.context.getCurrentTexture().createView();
     const depthTex  = this.device.createTexture({
@@ -236,7 +267,7 @@ _updateGlobalsUBO(camera) {
       format: "depth24plus",
       usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
-    const enc  = this.device.createCommandEncoder();
+
     const pass = enc.beginRenderPass({
       colorAttachments: [{
         view: colorView, loadOp: "clear",
@@ -251,25 +282,26 @@ _updateGlobalsUBO(camera) {
       }
     });
 
+    // fill
     pass.setPipeline(this.fillPipeline);
     pass.setBindGroup(0, this.globalBindGroup);
     pass.setVertexBuffer(0, this.posBuffer);
     pass.setIndexBuffer(this.indexBuffer, "uint32");
     pass.drawIndexed(this.indexCount, 1, 0, 0, 0);
 
+    // wireframe
     pass.setPipeline(this.linePipeline);
     pass.setBindGroup(0, this.globalBindGroup);
     pass.setVertexBuffer(0, this.posBuffer);
     pass.setIndexBuffer(this.lineIndexBuffer, "uint32");
     pass.drawIndexed(this.lineIndexCount, 1, 0, 0, 0);
 
-    if (this.markerShapeBuffer && this.markerInstanceBuffer && this.markerInstanceCount > 0) {
-      pass.setPipeline(this.markerPipeline);
-      pass.setBindGroup(0, this.globalBindGroup);
-      pass.setVertexBuffer(0, this.markerShapeBuffer);     // slot 0
-      pass.setVertexBuffer(1, this.markerInstanceBuffer);  // slot 1
-      pass.draw(6, this.markerInstanceCount, 0, 0);
-    }
+    // markers
+    pass.setPipeline(this.markerPipeline);
+    pass.setBindGroup(0, this.globalBindGroup);
+    pass.setVertexBuffer(0, this.markerShapeBuffer);
+    pass.setVertexBuffer(1, this.markerInstanceBuffer);
+    pass.draw(6, this.markerInstanceCount, 0, 0);
 
     pass.end();
     this.device.queue.submit([enc.finish()]);
